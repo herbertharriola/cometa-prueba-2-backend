@@ -17,11 +17,16 @@ def create_order(order_request: OrderRequestCreate):
         # Restar la cantidad del stock
         beer["quantity"] -= item["quantity"]
 
-        # Calcular subtotal
-        item_price = beer["price"] * item["quantity"]
-        subtotal += item_price
+        # Crear el item con los datos correctos
+        order_item = OrderItem(
+            name=item["name"], 
+            price_per_unit=beer["price"],  # Se obtiene del stock
+            quantity=item["quantity"], 
+            ordered_by=order_request.ordered_by
+        )
 
-        items_with_stock.append(OrderItem(**item, ordered_by=order_request.ordered_by))
+        items_with_stock.append(order_item)
+        subtotal += order_item.total  # Sumar el total calculado
 
     # Calcular impuestos y total
     taxes = subtotal * 0.12
@@ -78,12 +83,9 @@ def pay_order(pay_order_request: PayOrderRequest):
 
 def update_order(order_request: OrderRequestUpdate):
     # Buscar la orden existente
-    if order_request.order_id >= len(orders) + 1 or order_request.order_id < 0:
-        raise HTTPException(status_code=404, detail="Orden no encontrada")
-
     order = next((order for order in orders if order.id == order_request.order_id), None)
-
-    print(order)
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
 
     for item in order_request.items:
         beer = next((b for b in beers_data["beers"] if b["name"] == item["name"]), None)
@@ -99,7 +101,14 @@ def update_order(order_request: OrderRequestUpdate):
             existing_item.quantity += item["quantity"]
             existing_item.total += beer["price"] * item["quantity"]
         else:
-            order.items.append(OrderItem(**item, ordered_by=order_request.ordered_by))
+            # Agregar el `price_per_unit` antes de crear el nuevo item
+            item_with_price = {
+                "name": item["name"],
+                "quantity": item["quantity"],
+                "price_per_unit": beer["price"],  # 🔥 Agregamos el precio aquí
+                "ordered_by": order_request.ordered_by
+            }
+            order.items.append(OrderItem(**item_with_price))
 
     # Recalcular totales
     order.subtotal = sum(i.quantity * next(b["price"] for b in beers_data["beers"] if b["name"] == i.name) for i in order.items)
